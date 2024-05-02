@@ -1,3 +1,6 @@
+#include <vector>
+#include <numeric>
+#include <math.h>
 #include <Arduino.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
@@ -14,11 +17,13 @@
 RTC_DATA_ATTR int bootCount = 0;
 RTC_DATA_ATTR int distance_prev = 0;
 RTC_DATA_ATTR bool prev_wifistate = false;
-RTC_DATA_ATTR struct  {
+RTC_DATA_ATTR struct
+{
   int time_to_sleep = TIME_TO_SLEEP;
   int heartbeat = HEARTBEAT;
   int wifi_timeout = WIFI_TIMEOUT;
   int sensor_timeout = SENSOR_TIMEOUT;
+  int buffer_size = BUFFER_SIZE;
 } settings;
 
 WiFiClient wificlient;
@@ -79,47 +84,58 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
 }
 
-int measure_distance(){
-  int duration = 0;
+int measure_distance()
+{
+  std::vector<int> distances;
+  unsigned long duration = 0;
   int distance = 0;
   int retries = 0;
 
   // Clears the trigPin condition
-  digitalWrite(trigPin, LOW);  //
+  digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
 
   // retry measurement until it is within acceptable range or until timeout is reached
-  while((distance < SENSOR_RANGE_MIN || distance > SENSOR_RANGE_MAX) &&
-        retries <= settings.sensor_timeout) {
-  
+  while (distances.size() < settings.buffer_size || CONT_MEASURE)
+  {
+
     Serial.println("Waking up AJ-SR04M module");
     // Sets the trigPin HIGH (ACTIVE) for 1000 microseconds to wake module
     digitalWrite(trigPin, HIGH);
-    delayMicroseconds(1000);
+    delayMicroseconds(20);  // 1000 when using low power mode with 330kΩ resistor on pin27 or pin19 depends on version of the sensor
+                            // 20 us when using normal power mode (documentation says 10 us but some users recommend 20 us work
+                            // better, so do I)
     digitalWrite(trigPin, LOW);
 
     Serial.println("Read measured distance");
     // Reads the echoPin, returns the sound wave travel time in microseconds
     duration = pulseIn(echoPin, HIGH);
     // Calculating the distance
-    distance = duration * 0.034 / 2; // Speed of sound wave divided by 2 (go and back)
+    distance = round(float(duration) * 0.0343 / 2.0 + CALIBRATION_OFFSET); // Speed of sound wave divided by 2 (go and back) (us * (cm / us))
 
-    // Displays the distance on the Serial Monitor
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.println(" cm");
+    if (distance > SENSOR_RANGE_MIN && distance < SENSOR_RANGE_MAX)
+    {
+      // Displays the distance on the Serial Monitor
+      Serial.print("Distance: ");
+      Serial.print(distance);
+      Serial.println(" cm");
 
-    if (distance < SENSOR_RANGE_MIN || distance > SENSOR_RANGE_MAX) {
-      Serial.println("Distance out of range.");
-      distance = 0;
-      if (retries < settings.sensor_timeout) {
-        delay(50); // wait for module to settle before retrying
-      } 
+      distances.push_back(distance);
     }
+    else
+    {
+      // Serial.println("Distance out of range.");
+      distance = 0;
+    }
+    delay(RETRY_DELAY);
     ++retries;
   }
 
-  return distance;
+  int average_distance = round(accumulate(distances.begin(), distances.end(), 0.0) / distances.size());
+  Serial.print("Average Distance: ");
+  Serial.print(average_distance);
+  Serial.println(" cm");
+  return average_distance;
 }
 
 int setup_wifi() {
@@ -160,19 +176,24 @@ int setup_wifi() {
   return 1;
 }
 
-int connect_mqtt() {
+int connect_mqtt()
+{
   mqttclient.setServer(MQTT_HOST, MQTT_PORT);
   mqttclient.setCallback(mqttCallback);
   Serial.print("Connecting to MQTT server ");
   Serial.print(MQTT_HOST);
   Serial.print("...");
-  String clientId = "ESP32-Waterput";
-  if (mqttclient.connect(clientId.c_str())) {
+  if (mqttclient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS))
+  {
     Serial.println("Connected");
     return 1;
   }
-  Serial.println("Failed!!");
-  return 0;
+  else
+  {
+    Serial.print("Failed, rc=");
+    Serial.print(mqttclient.state()); // Print the connection error code for troubleshooting
+    return 0;
+  }
 }
 
 void deep_sleep() {
