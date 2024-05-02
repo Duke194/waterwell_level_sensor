@@ -96,7 +96,7 @@ int measure_distance()
   delayMicroseconds(2);
 
   // retry measurement until it is within acceptable range or until timeout is reached
-  while (distances.size() < settings.buffer_size || CONT_MEASURE)
+  while (distances.size() < settings.buffer_size && retries < settings.sensor_timeout || CONT_MEASURE)
   {
 
     Serial.println("Waking up AJ-SR04M module");
