@@ -183,6 +183,7 @@ int connect_mqtt()
   Serial.print("Connecting to MQTT server ");
   Serial.print(MQTT_HOST);
   Serial.print("...");
+  String clientId = "ESP32-Waterput";
   if (mqttclient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS))
   {
     Serial.println("Connected");
@@ -212,10 +213,11 @@ void deep_sleep() {
   esp_deep_sleep_start();
 }
 
-void setup() {
+void setup()
+{
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an OUTPUT
-  pinMode(echoPin, INPUT); // Sets the echoPin as an INPUT
-  pinMode (LED_BUILTIN, OUTPUT);
+  pinMode(echoPin, INPUT);  // Sets the echoPin as an INPUT
+  pinMode(LED_BUILTIN, OUTPUT);
 
   Serial.begin(9600); // // Serial Communication is starting with 9600 of baud rate speed
   Serial.println("\nUltrasonic Sensor HC-SR04M Waterput"); // print some text in Serial Monitor
