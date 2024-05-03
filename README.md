@@ -86,7 +86,7 @@ I have created this project in PlatformIO, but you should be able to use the Ard
     * `WIFI_PASSWORD` Wifi password
     * `MQTT_HOST` IP adress of MQTT server
     * `MQTT_PORT` Port of MQTT server 
-    * `MQTT_PUBLISH_TOPIC` Topic on MQTT server to publish measured distance to
+    * `MQTT_STATE_TOPIC` Topic on MQTT server to publish measured distance to
     * `MQTT_SETTINGS_TOPIC` Topic on MQTT server where adjustable program settings are published
   * In main.cpp: adjust `echoPin`, `trigPin` and `LED_BUILTIN` if you choose to connect the pins differently or if you chose to use another ESP32 board.
   * Compile and upload the code to the ESP32.
@@ -97,7 +97,7 @@ I have created this project in PlatformIO, but you should be able to use the Ard
 
 Do not yet use the batteries, but use a USB cable to your PC, so that you can monitor the console, to check if the device is able to correctly measure distance, to connect to your wifi, connect to your MQTT and is able to publish there.
 
-If everything works, you should have a retained message on your MQTT's `MQTT_PUBLISH_TOPIC` topic. The program publishes the message in retained mode so you can always retrieve the last measured value.
+If everything works, you should have a retained message on your MQTT's `MQTT_STATE_TOPIC` topic. The program publishes the message in retained mode so you can always retrieve the last measured value.
 
 The device will also check on `MQTT_SETTINGS_TOPIC` for updated settings, and apply them.
 

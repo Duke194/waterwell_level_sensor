@@ -14,7 +14,11 @@
 #define WIFI_SSID "wifi_ssid"
 #define WIFI_PASSWORD "wifi_passwd"
 
-#define MQTT_HOST IPAddress(192, 168, 0, 1)     /* IP of MQTT to publish */
-#define MQTT_PORT 1883
-#define MQTT_PUBLISH_TOPIC "home/rainwater_well/level"
-#define MQTT_SETTINGS_TOPIC "home/rainwater_well/settings"
+#define MQTT_CLIENT_ID "ESP32_rainwater_well_1"                                                                 /* The Client ID used in Home Assistant as well */
+#define MQTT_DISCOVERY_TOPIC "homeassistant/sensor/<replace-with-your-sensor-name>/config"                      /* Homeassistant discovery topic, default for mqtt integration */
+#define MQTT_SETTINGS_TOPIC "<replace-with-sensor-location>/sensor/<replace-with-your-sensor-name>/settings"    /* Topic for settings this is writeable (does not work for me in all cases) */
+#define MQTT_STATE_TOPIC "<replace-with-sensor-location>/sensor/<replace-with-your-sensor-name>/state"          /* The topic which updates the sensor state in homeassistant */
+#define MQTT_WILL_TOPIC "<replace-with-sensor-location>/sensor/<replace-with-your-sensor-name>/status"          /* Will topic (the will and birth mechanic is not really working properly with deep sleep, tho) */
+#define MQTT_BIRTH_TOPIC "<replace-with-sensor-location>/sensor/<replace-with-your-sensor-name>/status"         /* Birth topic */
+#define MQTT_HOST IPAddress(192, 168, 0, 1)                                                                     /* IP of MQTT to publish */
+#define MQTT_PORT 1883                                                                                          /* Port of MQTT broker */
