@@ -98,6 +98,7 @@ struct RuntimeSettings
   int sensor_range_min;
   int sensor_range_max;
   float calibration_offset;
+  float sensor_to_max_fill_cm;
   float area;
   float volume_well;
   char mqtt_host[64];
@@ -152,6 +153,7 @@ void loadDefaults()
   settings.sensor_range_min = SENSOR_RANGE_MIN;
   settings.sensor_range_max = SENSOR_RANGE_MAX;
   settings.calibration_offset = CALIBRATION_OFFSET;
+  settings.sensor_to_max_fill_cm = SENSOR_TO_MAX_FILL_CM;
   settings.area = AREA;
   settings.volume_well = VOLUME_WELL;
   strlcpy(settings.mqtt_host, MQTT_HOST, sizeof(settings.mqtt_host));
@@ -174,6 +176,7 @@ void loadSettingsFromNvs()
   settings.sensor_range_min = preferences.getInt("rng_min", settings.sensor_range_min);
   settings.sensor_range_max = preferences.getInt("rng_max", settings.sensor_range_max);
   settings.calibration_offset = preferences.getFloat("cal_off", settings.calibration_offset);
+  settings.sensor_to_max_fill_cm = preferences.getFloat("maxfill_cm", settings.sensor_to_max_fill_cm);
   settings.area = preferences.getFloat("area", settings.area);
   settings.volume_well = preferences.getFloat("vol", settings.volume_well);
   preferences.getString("mq_host", settings.mqtt_host, sizeof(settings.mqtt_host));
@@ -196,6 +199,7 @@ void saveSettingsToNvs()
   preferences.putInt("rng_min", settings.sensor_range_min);
   preferences.putInt("rng_max", settings.sensor_range_max);
   preferences.putFloat("cal_off", settings.calibration_offset);
+  preferences.putFloat("maxfill_cm", settings.sensor_to_max_fill_cm);
   preferences.putFloat("area", settings.area);
   preferences.putFloat("vol", settings.volume_well);
   preferences.putString("mq_host", settings.mqtt_host);
@@ -227,6 +231,34 @@ bool updateFloatSetting(const char *payload, float &setting)
     return true;
   }
   return false;
+}
+
+int computeVolumeLitersFromDistance(int distance_cm)
+{
+  // Account for installation offset: at max fill the distance is usually > 0.
+  float effective_distance_cm = (float)distance_cm - settings.sensor_to_max_fill_cm;
+  if (effective_distance_cm < 0.0f)
+  {
+    effective_distance_cm = 0.0f;
+  }
+
+  const int volume_l_empty = round((effective_distance_cm * 1e-1f) * (settings.area * 1e2f));
+  int volume_l = round(settings.volume_well - volume_l_empty);
+  if (volume_l < 0)
+  {
+    volume_l = 0;
+  }
+  return volume_l;
+}
+
+int computeEffectiveDistanceCm(int distance_cm)
+{
+  float effective_distance_cm = (float)distance_cm - settings.sensor_to_max_fill_cm;
+  if (effective_distance_cm < 0.0f)
+  {
+    effective_distance_cm = 0.0f;
+  }
+  return (int)round(effective_distance_cm);
 }
 
 void publishMonitorState()
@@ -321,6 +353,8 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       changed = updateIntSetting(safePayload, settings.sensor_range_max);
     else if (strcmp(settingKey, "calibration_offset") == 0)
       changed = updateFloatSetting(safePayload, settings.calibration_offset);
+    else if (strcmp(settingKey, "sensor_to_max_fill_cm") == 0)
+      changed = updateFloatSetting(safePayload, settings.sensor_to_max_fill_cm);
     else if (strcmp(settingKey, "area") == 0)
       changed = updateFloatSetting(safePayload, settings.area);
     else if (strcmp(settingKey, "volume_well") == 0)
@@ -346,7 +380,8 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
   else if (strcmp(topic, MQTT_MONITOR_COMMAND_TOPIC) == 0)
   {
     const bool enable = strcasecmp(safePayload, "ON") == 0 || strcmp(safePayload, "1") == 0;
-    setWebMonitorEnabled(enable, true);
+    // Keep monitor switch runtime-only so OTA reboot starts from configured default.
+    setWebMonitorEnabled(enable, false);
     logLine("Web monitor set via MQTT: %s", enable ? "ON" : "OFF");
   }
   else if (strcmp(topic, MQTT_RESTART_COMMAND_TOPIC) == 0)
@@ -474,12 +509,7 @@ int measure_distance()
   logLine("Average distance: %d cm (median=%d, kept=%d/%d)",
           filtered, median, (int)plausible.size(), (int)distances.size());
 
-  const int volume_l_empty = round((filtered * 1e-1f) * (settings.area * 1e2f));
-  int volume_l = round(settings.volume_well - volume_l_empty);
-  if (volume_l < 0)
-  {
-    volume_l = 0;
-  }
+  const int volume_l = computeVolumeLitersFromDistance(filtered);
   logLine("Calculated volume: %d L (%.3f m3)", volume_l, (float)volume_l / 1000.0f);
   return filtered;
 }
@@ -702,7 +732,8 @@ void handleRoot()
       "<div class='card'><h1>Waterwell Sensor Monitor</h1><div class='status' id='status'>Loading status...</div>"
       "<div class='kv'>"
       "<div class='k'>Boot count</div><div class='v' id='bootCount'>-</div>"
-      "<div class='k'>Distance</div><div class='v' id='distance'>-</div>"
+      "<div class='k'>Distance (raw)</div><div class='v' id='distanceRaw'>-</div>"
+      "<div class='k'>Distance (effective)</div><div class='v' id='distanceEffective'>-</div>"
       "<div class='k'>IP address</div><div class='v' id='ip'>-</div>"
       "<div class='k'>Web monitor</div><div class='v' id='monitor'>-</div>"
       "<div class='k'>Battery mode</div><div class='v' id='batteryMode'>-</div>"
@@ -728,6 +759,9 @@ void handleRoot()
   html += "'>"
           "<label>Sensor range max (cm)</label><input name='sensor_range_max' id='sensorRangeMax' type='number' min='1' max='2000' value='";
   html += String(settings.sensor_range_max);
+  html += "'>"
+          "<label>Sensor to max fill (cm)</label><input name='sensor_to_max_fill_cm' id='sensorToMaxFillCm' type='number' min='0' max='1000' step='0.01' value='";
+  html += String(settings.sensor_to_max_fill_cm, 2);
   html += "'>"
           "<label>Calibration offset (cm)</label><input name='calibration_offset' id='calibrationOffset' type='number' step='0.01' value='";
   html += String(settings.calibration_offset, 2);
@@ -762,7 +796,8 @@ void handleRoot()
       "try{const res=await fetch('/status/json',{cache:'no-store'});if(!res.ok)throw new Error('status http '+res.status);"
       "const data=await res.json();document.getElementById('status').textContent='Last update: '+new Date().toLocaleTimeString();"
       "document.getElementById('bootCount').textContent=(data.bootCount!==undefined&&data.bootCount!==null)?data.bootCount:'-';"
-      "document.getElementById('distance').textContent=((data.distance_cm!==undefined&&data.distance_cm!==null)?data.distance_cm:'-')+' cm';"
+      "document.getElementById('distanceRaw').textContent=((data.raw_distance_cm!==undefined&&data.raw_distance_cm!==null)?data.raw_distance_cm:'-')+' cm';"
+      "document.getElementById('distanceEffective').textContent=((data.effective_distance_cm!==undefined&&data.effective_distance_cm!==null)?data.effective_distance_cm:'-')+' cm';"
       "document.getElementById('ip').textContent=data.ip||'-';"
       "document.getElementById('monitor').textContent=data.monitor?'ON':'OFF';"
       "document.getElementById('batteryMode').textContent=data.settings&&data.settings.battery_mode?'ON':'OFF';"
@@ -774,6 +809,7 @@ void handleRoot()
       "document.getElementById('bufferSize').value=(data.settings.buffer_size!==undefined&&data.settings.buffer_size!==null)?data.settings.buffer_size:'';"
       "document.getElementById('sensorRangeMin').value=(data.settings.sensor_range_min!==undefined&&data.settings.sensor_range_min!==null)?data.settings.sensor_range_min:'';"
       "document.getElementById('sensorRangeMax').value=(data.settings.sensor_range_max!==undefined&&data.settings.sensor_range_max!==null)?data.settings.sensor_range_max:'';"
+      "document.getElementById('sensorToMaxFillCm').value=(data.settings.sensor_to_max_fill_cm!==undefined&&data.settings.sensor_to_max_fill_cm!==null)?data.settings.sensor_to_max_fill_cm:'';"
       "document.getElementById('calibrationOffset').value=(data.settings.calibration_offset!==undefined&&data.settings.calibration_offset!==null)?data.settings.calibration_offset:'';"
       "document.getElementById('batteryModeInput').checked=!!data.settings.battery_mode;"
       "document.getElementById('mqttHost').value=(data.mqtt.host!==undefined&&data.mqtt.host!==null)?data.mqtt.host:'';"
@@ -790,6 +826,7 @@ void handleRoot()
       "p.set('buffer_size',document.getElementById('bufferSize').value);"
       "p.set('sensor_range_min',document.getElementById('sensorRangeMin').value);"
       "p.set('sensor_range_max',document.getElementById('sensorRangeMax').value);"
+      "p.set('sensor_to_max_fill_cm',document.getElementById('sensorToMaxFillCm').value);"
       "p.set('calibration_offset',document.getElementById('calibrationOffset').value);"
       "if(document.getElementById('batteryModeInput').checked){p.set('battery_mode','1');}"
       "const r=await fetch('/settings',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p.toString()});"
@@ -809,6 +846,8 @@ void handleStatusJson()
   StaticJsonDocument<512> doc;
   doc["bootCount"] = bootCount;
   doc["distance_cm"] = lastMeasuredDistance;
+  doc["raw_distance_cm"] = lastMeasuredDistance;
+  doc["effective_distance_cm"] = computeEffectiveDistanceCm(lastMeasuredDistance);
   doc["ip"] = WiFi.localIP().toString();
   doc["monitor"] = webMonitorRunning;
   JsonObject s = doc.createNestedObject("settings");
@@ -819,6 +858,7 @@ void handleStatusJson()
   s["buffer_size"] = settings.buffer_size;
   s["sensor_range_min"] = settings.sensor_range_min;
   s["sensor_range_max"] = settings.sensor_range_max;
+  s["sensor_to_max_fill_cm"] = settings.sensor_to_max_fill_cm;
   s["calibration_offset"] = settings.calibration_offset;
   s["area"] = settings.area;
   s["volume_well"] = settings.volume_well;
@@ -854,6 +894,8 @@ void handleSettingsPost()
     settings.sensor_range_min = webServer.arg("sensor_range_min").toInt();
   if (webServer.hasArg("sensor_range_max"))
     settings.sensor_range_max = webServer.arg("sensor_range_max").toInt();
+  if (webServer.hasArg("sensor_to_max_fill_cm"))
+    settings.sensor_to_max_fill_cm = webServer.arg("sensor_to_max_fill_cm").toFloat();
   if (webServer.hasArg("calibration_offset"))
     settings.calibration_offset = webServer.arg("calibration_offset").toFloat();
 
@@ -861,12 +903,13 @@ void handleSettingsPost()
     settings.sensor_range_min = 0;
   if (settings.sensor_range_max <= settings.sensor_range_min)
     settings.sensor_range_max = settings.sensor_range_min + 1;
+  if (settings.sensor_to_max_fill_cm < 0.0f)
+    settings.sensor_to_max_fill_cm = 0.0f;
   if (settings.buffer_size < 1)
     settings.buffer_size = 1;
   settings.battery_mode = webServer.hasArg("battery_mode");
   saveSettingsToNvs();
-  const int volume_l_empty = round((lastMeasuredDistance * 1e-1f) * (settings.area * 1e2f));
-  const int volume_l = round(settings.volume_well - volume_l_empty);
+  const int volume_l = computeVolumeLitersFromDistance(lastMeasuredDistance);
   publishMetricStates(volume_l);
   webServer.send(200, "text/plain", "OK");
 }
@@ -953,7 +996,7 @@ void startWebMonitor()
   webServer.begin();
   webMonitorRunning = true;
   publishMonitorState();
-  logLine("Web monitor started on port 80");
+  logLine("Web monitor started on http://%s/", WiFi.localIP().toString().c_str());
 }
 
 void stopWebMonitor()
@@ -981,6 +1024,7 @@ void printSettings()
   logLine("Settings: hb=%d sleep=%d wifi_to=%d sensor_to=%d buf=%d range=%d-%d area=%.2f volume=%.2f",
           settings.heartbeat, settings.time_to_sleep, settings.wifi_timeout, settings.sensor_timeout,
           settings.buffer_size, settings.sensor_range_min, settings.sensor_range_max, settings.area, settings.volume_well);
+  logLine("Sensor->max-fill offset: %.2f cm", settings.sensor_to_max_fill_cm);
   logLine("Calibration offset: %.2f cm", settings.calibration_offset);
   logLine("Power profile: battery_mode=%s", settings.battery_mode ? "ON" : "OFF");
   logLine("MQTT: %s:%d user=%s", settings.mqtt_host, settings.mqtt_port, settings.mqtt_user);
@@ -1010,8 +1054,7 @@ void setup()
     mqttOk = connect_mqtt_with_retries(MQTT_RETRY_LIMIT);
     if (mqttOk)
     {
-      const int volume_l_empty = round((lastMeasuredDistance * 1e-1f) * (settings.area * 1e2f));
-      const int volume_l = round(settings.volume_well - volume_l_empty);
+      const int volume_l = computeVolumeLitersFromDistance(lastMeasuredDistance);
       publish_state(volume_l);
     }
   }
@@ -1100,8 +1143,7 @@ void loop()
       {
         lastNoSleepMeasureMs = now;
         lastMeasuredDistance = measure_distance();
-        const int volume_l_empty = round((lastMeasuredDistance * 1e-1f) * (settings.area * 1e2f));
-        const int volume_l = round(settings.volume_well - volume_l_empty);
+        const int volume_l = computeVolumeLitersFromDistance(lastMeasuredDistance);
         if (mqttclient.connected())
         {
           publish_state(volume_l);
@@ -1154,8 +1196,7 @@ void loop()
   {
     lastNoSleepMeasureMs = now;
     lastMeasuredDistance = measure_distance();
-    const int volume_l_empty = round((lastMeasuredDistance * 1e-1f) * (settings.area * 1e2f));
-    const int volume_l = round(settings.volume_well - volume_l_empty);
+    const int volume_l = computeVolumeLitersFromDistance(lastMeasuredDistance);
     if (mqttclient.connected())
     {
       publish_state(volume_l);
