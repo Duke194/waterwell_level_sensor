@@ -1,0 +1,49 @@
+metadata:
+  template:
+    name: heronitec
+  title: ESP32-S3 DevKitC-1 to SR04M-2
+  additional_title: ""
+  pn: ""
+  company: Schreck Technology Software
+  department: ""
+  technical_reference: ""
+  created_by: "Steven Schreck"
+  approved_by: ""
+  scale: ""
+  doc_type: ""
+  doc_status: ""
+  rev: ""
+  issue_date: ""
+  language: de
+
+connectors:
+  J1:
+    type: Pin header
+    subtype: male
+    notes: ESP32-S3-DevKitC-1 header J1, used pins only
+    pins: [1, 4, 5, 22]
+    pinlabels: [3V3, GPIO4, GPIO5, GND]
+    image:
+      src: esp32-s3-top.png
+      caption: Front view.
+      height: 560
+      scale: true
+      fixedsize: false
+  X1:
+    type: Pin header
+    subtype: male
+    notes: SR04M-2 header. Feed 3.3 V into the pin labeled 5V. In pulse mode RX is the trigger input and TX is the echo output
+    pinlabels: [5V, RX, TX, GND]
+
+cables:
+  W1:
+    gauge: 0.14 mm2
+    length: 0.2
+    colors: [RD, YE, GN, BK]
+    wirecount: 4
+
+connections:
+  -
+    - J1: [1, 4, 5, 22]
+    - W1: [1, 2, 3, 4]
+    - X1: [1, 2, 3, 4]

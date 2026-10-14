@@ -6,3 +6,4 @@
 include/settings.h
 .cache/
 compile_commands.json
+update/

@@ -30,6 +30,8 @@ And if a measured distance is outside pre-set boundaries, it is deemed invalid a
 
 ## Required hardware:
 
+The ESP32-S3 DevKitC-1 build and its wiring are in [docs/esp32-s3.md](docs/esp32-s3.md).
+
 * ESP32 board 
   (an energy efficient one. I used an [Addafruit Feather Huzzah32](https://www.adafruit.com/product/3405) I had lying around, but a [DFRobot FireBeetle 2 ESP32-E](https://www.dfrobot.com/product-2195.html) is supposedly much more energy efficient.)
   Don't use a DOIT ESP32 DevKit, as I tried first, since those even won't be able to initialize Wifi on 3 AA batteries.
@@ -110,6 +112,7 @@ You can update:
 
 by sending a **retained** value to those topics. Those settings will then be picked up by the device the next time that it wakes up and publishes a measurement.
 To make sure the device received all settings before going back to sleep, it will also publish a boot sequence number to `MQTT_SETTINGS_TOPIC`/ping and wait for that message to come back. That ping message is not retained so to catch it you need an active client subscribed to it, but then that value can be used to check/know when the device is connected and how much wake/sleep cycles it has performed up until now.
+
 
 ## Step 5: Finalize
 To finalize solder a female PH2.0 2p to the battery holder output, make sure USB is unplugged and connect the batteries.

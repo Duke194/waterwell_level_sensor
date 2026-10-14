@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="generator" content="<!-- %generator% -->">
+  <title><!-- %title% --></title>
+  <style>
+    body {
+      font-family: <!-- %fontname% -->, sans-serif;
+      background: <!-- %bgcolor% -->;
+      margin: 0;
+    }
+
+    @page {
+      size: A4 landscape;
+      margin: 8mm;
+    }
+
+    #page {
+      width: 281mm;
+      height: 194mm;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #diagram {
+      flex: 1 1 auto;
+      height: 0;
+      min-height: 0;
+    }
+
+    #diagram svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #bottom {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 4mm;
+      margin-top: 3mm;
+    }
+
+    #titleblock {
+      width: 50%;
+      margin: 0 0 0 auto;
+    }
+
+    #titleblock table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 0.35mm solid #000;
+      table-layout: fixed;
+    }
+
+    #titleblock td {
+      border: 0.3mm solid #000;
+      vertical-align: top;
+      padding: 0.4mm 0.8mm;
+      font-size: 2.3mm;
+      line-height: 1.15;
+    }
+
+    #titleblock .label {
+      color: #333;
+      font-size: 2mm;
+    }
+
+    #titleblock .value {
+      min-height: 0;
+      font-size: 2.6mm;
+    }
+
+    #titleblock .company {
+      text-align: center;
+      font-size: 3.2mm;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      vertical-align: middle;
+    }
+
+    #titleblock .title {
+      font-size: 3.4mm;
+      font-weight: 700;
+    }
+
+    #titleblock .pn {
+      font-size: 2.8mm;
+      font-weight: 700;
+    }
+
+    #bom {
+      width: max-content;
+      max-width: calc(50% - 2mm);
+      margin: 0;
+      text-align: left;
+    }
+
+    #bom table {
+      width: auto;
+      table-layout: auto;
+      margin: 0;
+    }
+
+    #bom table, #bom th, #bom td {
+      border: 1px solid #000;
+      border-collapse: collapse;
+    }
+
+    #bom th, #bom td {
+      padding: 0.4mm 0.8mm;
+      text-align: left;
+      font-size: 2.2mm;
+      white-space: nowrap;
+      width: auto;
+    }
+
+    #bom .bom_col_qty {
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div id="page">
+  <div id="diagram"><!-- %diagram% --></div>
+  <div id="bottom">
+  <div id="bom"><!-- %bom% --></div>
+  <div id="titleblock">
+    <table>
+      <colgroup>
+        <col style="width: 18%">
+        <col style="width: 16%">
+        <col style="width: 14%">
+        <col style="width: 14%">
+        <col style="width: 14%">
+        <col style="width: 12%">
+        <col style="width: 12%">
+      </colgroup>
+      <tr>
+        <td><div class="label">Verantwortliche Abt.</div></td>
+        <td><div class="label">Technische Referenz</div></td>
+        <td><div class="label">Erstellt durch</div></td>
+        <td><div class="label">Genehmigt von</div></td>
+        <td colspan="3"><div class="label">Maßstab</div></td>
+      </tr>
+      <tr>
+        <td><div class="value"><!-- %department% --></div></td>
+        <td><div class="value"><!-- %technical_reference% --></div></td>
+        <td><div class="value"><!-- %created_by% --></div></td>
+        <td><div class="value"><!-- %approved_by% --></div></td>
+        <td colspan="3"><div class="value"><!-- %scale% --></div></td>
+      </tr>
+      <tr>
+        <td class="company" colspan="2" rowspan="2"><!-- %company% --></td>
+        <td colspan="2"><div class="label">Dokumentenart</div><div class="value"><!-- %doc_type% --></div></td>
+        <td colspan="2"><div class="label">Dokumentenstatus</div><div class="value"><!-- %doc_status% --></div></td>
+        <td><div class="label">Rev.</div><div class="value"><!-- %rev% --></div></td>
+      </tr>
+      <tr>
+        <td colspan="5">
+          <div class="label">Titel, Zusätzlicher Titel</div>
+          <div class="title"><!-- %title% --></div>
+          <div class="value"><!-- %additional_title% --></div>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2">
+          <div class="label">Sachnummer</div>
+          <div class="pn"><!-- %pn% --></div>
+        </td>
+        <td colspan="2">
+          <div class="label">Ausgabedatum</div>
+          <div class="value"><!-- %issue_date% --></div>
+        </td>
+        <td colspan="2">
+          <div class="label">Spr.</div>
+          <div class="value"><!-- %language% --></div>
+        </td>
+        <td>
+          <div class="label">Blatt</div>
+          <div class="value"><!-- %sheet_current% -->/<!-- %sheet_total% --></div>
+        </td>
+      </tr>
+    </table>
+  </div>
+  </div>
+  </div>
+</body>
+</html>
