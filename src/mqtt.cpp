@@ -196,8 +196,8 @@ void publishDiscovery()
     JsonArray identifiers = device.createNestedArray("identifiers");
     identifiers.add(path.clientId);
     device["name"] = MQTT_DEVICE_NAME;
-    device["manufacturer"] = "DIY";
-    device["model"] = "ESP32";
+    device["manufacturer"] = "Schreck Technology Software";
+    device["model"] = "ESP32 Waterwell";
   };
 
   auto publishDoc = [&](const char *topic)
