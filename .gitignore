@@ -7,3 +7,5 @@ include/settings.h
 .cache/
 compile_commands.json
 update/
+
+docs/Settings_carport.png
