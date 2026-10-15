@@ -341,59 +341,45 @@ void test_rejected_upload_can_be_retried()
   CHECK(std::strcmp(reason, "ok") == 0);
 }
 
-void test_pending_firmware_confirms_only_after_a_real_http_request()
+void test_rollback_label_reads_the_version_in_front_of_the_log_line()
 {
-  const uint32_t stable = OTA_CONFIRM_STABLE_MS;
-  const uint32_t timeout = OTA_CONFIRM_TIMEOUT_MS;
-  const uint32_t started = 5000;
+  const char marked[] = "waterwell-fw=v9.8.7";
+  char version[16];
+  CHECK(otaCopyRollbackVersion(reinterpret_cast<const uint8_t *>(marked), sizeof(marked), version, sizeof(version)));
+  CHECK(std::strcmp(version, "v9.8.7") == 0);
 
-  CHECK(otaDecideBoot(false, timeout, started, started + stable, stable, timeout) == OtaBootDecision::NotPending);
+  const char image[] = "xx\0v1.2.3\0Firmware %s, boot number: %d";
+  CHECK(otaCopyRollbackVersion(reinterpret_cast<const uint8_t *>(image), sizeof(image), version, sizeof(version)));
+  CHECK(std::strcmp(version, "v1.2.3") == 0);
 
-  // Listener is up and Wi-Fi is up, but nobody got an HTTP response.
-  CHECK(otaDecideBoot(true, started + stable, started, 0, stable, timeout) == OtaBootDecision::StayPending);
-  CHECK(otaDecideBoot(true, started + timeout, started, 0, stable, timeout) == OtaBootDecision::RollBack);
-
-  // A request before the listener has been up for the stable window does not count.
-  CHECK(otaDecideBoot(true, started + stable - 1, started, started + stable - 1, stable, timeout) == OtaBootDecision::StayPending);
-  CHECK(otaDecideBoot(true, started + stable, started, started + stable, stable, timeout) == OtaBootDecision::MarkValid);
-
-  // Slow boot: the user's window starts when the listener opens, not at reset.
-  CHECK(otaDecideBoot(true, started + timeout - 1, started, 0, stable, timeout) == OtaBootDecision::StayPending);
-  CHECK(otaDecideBoot(true, started + timeout, started, 0, stable, timeout) == OtaBootDecision::RollBack);
-
-  // Listener never opened: the window is the time since boot.
-  CHECK(otaDecideBoot(true, timeout - 1, 0, 0, stable, timeout) == OtaBootDecision::StayPending);
-  CHECK(otaDecideBoot(true, timeout, 0, 0, stable, timeout) == OtaBootDecision::RollBack);
-
-  // A late real request still wins over the timeout.
-  CHECK(otaDecideBoot(true, started + timeout, started, started + timeout, stable, timeout) == OtaBootDecision::MarkValid);
+  const char junk[] = "Firmware %s, boot number";
+  CHECK(!otaCopyRollbackVersion(reinterpret_cast<const uint8_t *>(junk), sizeof(junk) - 1, version, sizeof(version)));
+  const char foreign[] = "esp-idf\0Firmware %s, boot number";
+  CHECK(!otaCopyRollbackVersion(reinterpret_cast<const uint8_t *>(foreign), sizeof(foreign) - 1, version, sizeof(version)));
 }
 
-void test_unconfirmed_firmware_does_not_overwrite_its_rollback_slot()
+void test_web_stays_up_when_the_monitor_is_wanted()
 {
-  CHECK(otaShouldForceWeb(true, false, false));
-  CHECK(!otaShouldForceWeb(false, false, false));
-  CHECK(otaShouldForceWeb(false, true, false));
-  CHECK(otaShouldForceWeb(false, false, true));
-  CHECK(!otaMayAcceptUpload(true));
-  CHECK(otaMayAcceptUpload(false));
+  CHECK(!otaShouldForceWeb(false, false));
+  CHECK(otaShouldForceWeb(true, false));
+  CHECK(otaShouldForceWeb(false, true));
+  CHECK(otaShouldForceWeb(true, true));
 }
 
 void test_device_never_sleeps_without_battery_mode()
 {
   CHECK(!powerMayDeepSleep(false));
   CHECK(powerMayDeepSleep(true));
-  // Battery mode off: always awake, whatever the web monitor or OTA state is.
-  for (int mask = 0; mask < 16; ++mask)
+  // Battery mode off: always awake, whatever the web monitor is doing.
+  for (int mask = 0; mask < 8; ++mask)
   {
-    CHECK(powerStayAwake(false, (mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0, (mask & 8) != 0));
+    CHECK(powerStayAwake(false, (mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0));
   }
   // Battery mode on: sleeps only when nothing needs the device.
-  CHECK(!powerStayAwake(true, false, false, false, false));
-  CHECK(powerStayAwake(true, true, false, false, false));
-  CHECK(powerStayAwake(true, false, true, false, false));
-  CHECK(powerStayAwake(true, false, false, true, false));
-  CHECK(powerStayAwake(true, false, false, false, true));
+  CHECK(!powerStayAwake(true, false, false, false));
+  CHECK(powerStayAwake(true, true, false, false));
+  CHECK(powerStayAwake(true, false, true, false));
+  CHECK(powerStayAwake(true, false, false, true));
 }
 
 void test_s3_firmware_is_rejected_on_esp32()
@@ -421,7 +407,12 @@ void test_s3_firmware_is_rejected_on_esp32()
   const OtaImageCheck check = inspect(firmware, OTA_DEFAULT_SLOT_BYTES, 4096);
   CHECK(!check.structure_ok);
   CHECK(std::strcmp(check.reason, "wrong chip") == 0);
+  char rollbackVersion[16];
+  CHECK(otaCopyRollbackVersion(firmware.data(), firmware.size(), rollbackVersion, sizeof(rollbackVersion)));
+  CHECK(std::strcmp(rollbackVersion, "v0.1.0") == 0);
 }
+
+void test_built_firmware_is_safe_to_flash()
 {
   std::vector<uint8_t> firmware;
   std::string path;
@@ -435,6 +426,9 @@ void test_s3_firmware_is_rejected_on_esp32()
   const OtaImageCheck intact = inspect(firmware, OTA_DEFAULT_SLOT_BYTES, 3);
   CHECK(intact.structure_ok);
   CHECK(intact.has_marker);
+  char rollbackVersion[16];
+  CHECK(otaCopyRollbackVersion(firmware.data(), firmware.size(), rollbackVersion, sizeof(rollbackVersion)));
+  CHECK(rollbackVersion[0] == 'v');
   CHECK(std::strcmp(intact.reason, "ok") == 0);
   if (!intact.structure_ok || !intact.has_marker)
   {
@@ -487,8 +481,8 @@ int main()
   RUN(test_flash_begin_failure_never_commits);
   RUN(test_flash_write_failure_never_commits);
   RUN(test_rejected_upload_can_be_retried);
-  RUN(test_pending_firmware_confirms_only_after_a_real_http_request);
-  RUN(test_unconfirmed_firmware_does_not_overwrite_its_rollback_slot);
+  RUN(test_rollback_label_reads_the_version_in_front_of_the_log_line);
+  RUN(test_web_stays_up_when_the_monitor_is_wanted);
   RUN(test_device_never_sleeps_without_battery_mode);
   RUN(test_s3_firmware_is_rejected_on_esp32);
   RUN(test_built_firmware_is_safe_to_flash);

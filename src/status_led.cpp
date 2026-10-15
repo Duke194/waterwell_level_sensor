@@ -36,8 +36,6 @@ Rgb colorFor(StatusLed state)
     return {0, 255, 255};
   case StatusLed::MqttFailed:
     return {255, 80, 0};
-  case StatusLed::OtaPending:
-    return {255, 200, 0};
   case StatusLed::Measuring:
     return {255, 255, 255};
   case StatusLed::Dev:
@@ -109,8 +107,6 @@ const char *statusLedName(StatusLed state)
     return "MQTT verbindet";
   case StatusLed::MqttFailed:
     return "MQTT Fehler";
-  case StatusLed::OtaPending:
-    return "Firmware unbestaetigt";
   case StatusLed::Measuring:
     return "Messung";
   case StatusLed::Dev:

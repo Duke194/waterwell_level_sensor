@@ -11,16 +11,6 @@ const char *otaImageMarker();
 // Arduino default 4MB scheme: app0/app1 are each 0x140000 bytes.
 constexpr size_t OTA_DEFAULT_SLOT_BYTES = 0x140000;
 
-// Time the new image gets to prove the OTA page answers. Measured from the
-// moment the web listener opens, or from boot if it never opens. A reset
-// before confirm also rolls back, because the bootloader still has the
-// image marked pending.
-constexpr uint32_t OTA_CONFIRM_TIMEOUT_MS = 600000;
-
-// A request only counts once the listener has been up this long, so a single
-// packet at boot cannot confirm a server that dies immediately after.
-constexpr uint32_t OTA_CONFIRM_STABLE_MS = 30000;
-
 enum class OtaParsePhase : uint8_t
 {
   Header = 0,
@@ -67,14 +57,6 @@ struct OtaUploadGate
   const char *reason;
 };
 
-enum class OtaBootDecision
-{
-  NotPending,
-  StayPending,
-  MarkValid,
-  RollBack
-};
-
 void otaImageParserReset(OtaImageParser *parser, size_t max_image_bytes);
 bool otaImageParserAdd(OtaImageParser *parser, const uint8_t *data, size_t len);
 OtaImageCheck otaImageParserFinish(const OtaImageParser *parser);
@@ -91,13 +73,12 @@ const char *otaGateReason(const OtaUploadGate *gate);
 // this would return true for a successful end.
 bool otaMayReboot(bool image_accepted, bool update_end_ok);
 
-// web_started_ms / last_served_ms are millis() values, or 0 when that event
-// has not happened. Confirm only after an HTTP response that was completed
-// at least stable_ms after the listener opened. Roll back when that does
-// not happen within timeout_ms.
-OtaBootDecision otaDecideBoot(bool pending, uint32_t uptime_ms, uint32_t web_started_ms, uint32_t last_served_ms, uint32_t stable_ms, uint32_t timeout_ms);
-bool otaShouldForceWeb(bool pending, bool monitor_enabled, bool failure_forced);
+// Copies "vX.Y.Z" into out. Prefers the literal "waterwell-fw=vX.Y.Z" that
+// ota_boot.cpp keeps in the image. Older images only have the version C string
+// immediately in front of "Firmware %s, boot number". Returns false when neither
+// form is present.
+bool otaCopyRollbackVersion(const uint8_t *data, size_t len, char *out, size_t out_len);
 
-// A second upload would overwrite the only rollback slot. Refuse it until
-// the running image has been confirmed.
-bool otaMayAcceptUpload(bool awaiting_confirm);
+// The web listener stays up while the user asked for the monitor, or while
+// MQTT failed and the page is the only way left to reach the device.
+bool otaShouldForceWeb(bool monitor_enabled, bool failure_forced);

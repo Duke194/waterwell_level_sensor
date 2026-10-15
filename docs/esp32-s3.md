@@ -55,7 +55,6 @@ The firmware shows what the device is doing with its on-board LED. What you see 
 | Red | No Wi-Fi connection |
 | Cyan | Wi-Fi is up, connecting to the MQTT broker |
 | Orange | Wi-Fi is up, but the MQTT broker is not reachable |
-| Yellow | New firmware (OTA) is not confirmed yet. Open the web monitor so it can be confirmed, otherwise the previous firmware returns |
 | White, short flash | A measurement is running |
 | Magenta | DEV mode is on and the device is online |
 | Green, blinking | Firmware image was accepted. The device reboots after about 5 seconds |
@@ -70,5 +69,5 @@ Notes:
   * The LED is switched off before deep sleep, because an RGB LED keeps its last color otherwise and would drain the batteries.
   * The RGB pin comes from `RGB_BUILTIN` in the board definition. If your board revision has the LED on another pin and it stays dark, check that definition. Early DevKitC-1 revisions use GPIO48, newer ones use GPIO38.
   * The LED logic lives in `src/status_led.cpp`. To change a color, edit `colorFor()` there.
-  * The Home Assistant entity "Status" is a remote copy of this LED. It shows the same text (`Online`, `Messung`, `Schlaeft`, `Firmware unbestaetigt`, and the other states). `Messung` stays up for at least a second so it is visible. States that only happen while the broker is unreachable (`WLAN verbindet`, `WLAN Fehler`, `MQTT verbindet`, `MQTT Fehler`) show up after the connection returns. The Wi-Fi blink and the green blink before reboot stay on the lamp and are not sent.
+  * The Home Assistant entity "Status" is a remote copy of this LED. It shows the same text (`Online`, `Messung`, `Schlaeft`, and the other states). `Messung` stays up for at least a second so it is visible. States that only happen while the broker is unreachable (`WLAN verbindet`, `WLAN Fehler`, `MQTT verbindet`, `MQTT Fehler`) show up after the connection returns. The Wi-Fi blink and the green blink before reboot stay on the lamp and are not sent.
 

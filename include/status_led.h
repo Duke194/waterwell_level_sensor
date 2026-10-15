@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 // Status LED. The ESP32-S3 build (STATUS_LED_RGB) drives the on-board RGB LED.
 // The classic ESP-WROOM-32 build keeps its plain LED on GPIO2: it blinks while
 // Wi-Fi is connecting, blinks for a few seconds after a successful OTA flash,
@@ -11,7 +13,6 @@ enum class StatusLed
   WifiFailed,     // Red: no Wi-Fi
   MqttConnecting, // Cyan: Wi-Fi is up, connecting to the broker
   MqttFailed,     // Orange: Wi-Fi is up, broker is not reachable
-  OtaPending,     // Yellow: new firmware is not confirmed yet
   Measuring,      // White flash while the sensor is read
   Dev,            // Magenta: DEV mode, online
   Online          // Green: everything fine

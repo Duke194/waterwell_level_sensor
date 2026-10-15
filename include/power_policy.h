@@ -9,13 +9,13 @@ inline bool powerMayDeepSleep(bool battery_mode)
 }
 
 // Without battery mode the device is always awake. In battery mode it only
-// stays awake while somebody needs it: dev mode, a running or wanted web
-// monitor, or an update that is not confirmed yet.
-inline bool powerStayAwake(bool battery_mode, bool dev_mode, bool web_running, bool web_wanted, bool awaiting_ota_confirm)
+// stays awake while somebody needs it: dev mode, or a running or wanted web
+// monitor.
+inline bool powerStayAwake(bool battery_mode, bool dev_mode, bool web_running, bool web_wanted)
 {
   if (!powerMayDeepSleep(battery_mode))
   {
     return true;
   }
-  return dev_mode || web_running || web_wanted || awaiting_ota_confirm;
+  return dev_mode || web_running || web_wanted;
 }

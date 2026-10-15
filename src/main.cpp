@@ -3,6 +3,7 @@
 #include "log.h"
 #include "mqtt.h"
 #include "ota_boot.h"
+#include "ota_image.h"
 #include "power_policy.h"
 #include "sensor.h"
 #include "settings.h"
@@ -100,10 +101,6 @@ void showStatusLed()
   {
     state = StatusLed::MqttFailed;
   }
-  else if (otaBootAwaitingConfirm())
-  {
-    state = StatusLed::OtaPending;
-  }
   else if (settings.dev_mode)
   {
     state = StatusLed::Dev;
@@ -194,7 +191,7 @@ void goToBatterySleep()
 bool stayAwake()
 {
   return powerStayAwake(settings.battery_mode, settings.dev_mode, webMonitorIsRunning(),
-                        settings.web_monitor_enabled || webMonitorForcedByFailure(), otaBootAwaitingConfirm());
+                        settings.web_monitor_enabled || webMonitorForcedByFailure());
 }
 } // namespace
 
@@ -280,11 +277,10 @@ void setup()
   lastMeasureMs = now;
   lastPublishMs = now;
 
-  const bool pendingFirmware = otaBootAwaitingConfirm();
-  if (pendingFirmware || settings.web_monitor_enabled || webMonitorForcedByFailure() || settings.dev_mode)
+  if (settings.web_monitor_enabled || webMonitorForcedByFailure() || settings.dev_mode)
   {
     // Wi-Fi and MQTT are retried by serviceNetwork() in loop().
-    if (otaShouldForceWeb(pendingFirmware, settings.web_monitor_enabled, webMonitorForcedByFailure()))
+    if (otaShouldForceWeb(settings.web_monitor_enabled, webMonitorForcedByFailure()))
     {
       startWebMonitor();
     }
@@ -324,8 +320,6 @@ void loop()
     webReopenListener();
   }
   wifiWasConnected = wifiNow;
-
-  otaBootPoll(now, webMonitorStartedMs(), webLastRequestMs());
 
   if (!stayAwake())
   {
