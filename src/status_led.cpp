@@ -76,6 +76,18 @@ void begin()
 }
 
 #endif
+
+// Physical lamp only. The non-RGB board has no color, so any requested
+// state lights GPIO2. Callers that blink must not go through statusLedSet.
+void writeBlink(StatusLed state, bool on)
+{
+#ifdef STATUS_LED_RGB
+  write(on ? state : StatusLed::Off);
+#else
+  (void)state;
+  digitalWrite(LED_PIN, on ? HIGH : LOW);
+#endif
+}
 } // namespace
 
 void statusLedBegin()
@@ -128,4 +140,23 @@ void statusLedPulse()
 {
   lampLit = !lampLit;
   write(lampLit ? current : StatusLed::Off);
+}
+
+void statusLedBlinkFor(StatusLed state, uint32_t durationMs)
+{
+  constexpr uint32_t halfPeriodMs = 250;
+  const uint32_t started = millis();
+  bool on = false;
+  while ((uint32_t)(millis() - started) < durationMs)
+  {
+    on = !on;
+    writeBlink(state, on);
+    const uint32_t elapsed = (uint32_t)(millis() - started);
+    if (elapsed >= durationMs)
+    {
+      break;
+    }
+    const uint32_t remain = durationMs - elapsed;
+    delay(remain < halfPeriodMs ? remain : halfPeriodMs);
+  }
 }

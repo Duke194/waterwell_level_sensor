@@ -46,7 +46,7 @@ Copy `include/settings.h.example` to `include/settings.h` and fill it in as desc
 
 The firmware shows what the device is doing with its on-board LED. What you see depends on the board you build for:
 
-  * `esp-wroom-32`: the plain LED on GPIO2. It blinks while the device connects to Wi-Fi and is off in every other state.
+  * `esp-wroom-32`: the plain LED on GPIO2. It blinks while the device connects to Wi-Fi, blinks for about 5 seconds after a successful OTA flash, and is off in every other state.
   * `esp32-s3`: the on-board RGB LED of the ESP32-S3 DevKitC-1. It is enabled by the build flag `-DSTATUS_LED_RGB` in `platformio.ini` and shows the colors below.
 
 | Color | Meaning |
@@ -58,10 +58,11 @@ The firmware shows what the device is doing with its on-board LED. What you see 
 | Yellow | New firmware (OTA) is not confirmed yet. Open the web monitor so it can be confirmed, otherwise the previous firmware returns |
 | White, short flash | A measurement is running |
 | Magenta | DEV mode is on and the device is online |
+| Green, blinking | Firmware image was accepted. The device reboots after about 5 seconds |
 | Green | Everything is fine |
 | Off | Deep sleep (battery mode) |
 
-If several states apply at once, the one higher in the table wins, except for blue and white, which only show for a moment.
+If several states apply at once, the one higher in the table wins, except for blue, the green blink before reboot, and white, which only show for a moment.
 
 Notes:
 
@@ -69,5 +70,5 @@ Notes:
   * The LED is switched off before deep sleep, because an RGB LED keeps its last color otherwise and would drain the batteries.
   * The RGB pin comes from `RGB_BUILTIN` in the board definition. If your board revision has the LED on another pin and it stays dark, check that definition. Early DevKitC-1 revisions use GPIO48, newer ones use GPIO38.
   * The LED logic lives in `src/status_led.cpp`. To change a color, edit `colorFor()` there.
-  * The Home Assistant entity "Status" is a remote copy of this LED. It shows the same text (`Online`, `Messung`, `Schlaeft`, and the other states). `Messung` stays up for at least a second so it is visible. States that only happen while the broker is unreachable (`WLAN verbindet`, `WLAN Fehler`, `MQTT verbindet`, `MQTT Fehler`) show up after the connection returns. The Wi-Fi blink itself stays on the lamp and is not sent.
+  * The Home Assistant entity "Status" is a remote copy of this LED. It shows the same text (`Online`, `Messung`, `Schlaeft`, `Firmware unbestaetigt`, and the other states). `Messung` stays up for at least a second so it is visible. States that only happen while the broker is unreachable (`WLAN verbindet`, `WLAN Fehler`, `MQTT verbindet`, `MQTT Fehler`) show up after the connection returns. The Wi-Fi blink and the green blink before reboot stay on the lamp and are not sent.
 

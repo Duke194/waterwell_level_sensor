@@ -7,6 +7,7 @@
 #include "ota_boot.h"
 #include "sensor.h"
 #include "settings.h"
+#include "status_led.h"
 
 #include <ArduinoJson.h>
 #include <Update.h>
@@ -461,7 +462,7 @@ static void registerWebHandlers()
         if (otaHttpResult == OtaHttpResult::Reboot)
         {
           webServer.send(200, "text/plain", "OK rebooting");
-          delay(1000);
+          statusLedBlinkFor(StatusLed::Online, 5000);
           ESP.restart();
           return;
         }
