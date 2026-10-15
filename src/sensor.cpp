@@ -3,6 +3,7 @@
 #include "config.h"
 #include "diag.h"
 #include "log.h"
+#include "plausibility.h"
 #include "settings.h"
 
 #include <Arduino.h>
@@ -22,22 +23,6 @@ namespace
 #define TRIG_PIN 26
 #endif
 
-#ifndef PLAUSIBILITY_OUTLIER_DELTA_CM
-#define PLAUSIBILITY_OUTLIER_DELTA_CM 6
-#endif
-
-#ifndef PLAUSIBILITY_MAX_STEP_CM
-#define PLAUSIBILITY_MAX_STEP_CM 20
-#endif
-
-#ifndef PLAUSIBILITY_RELAX_RATE_CM_PER_MIN
-#define PLAUSIBILITY_RELAX_RATE_CM_PER_MIN 8
-#endif
-
-#ifndef PLAUSIBILITY_DISABLE_AFTER_MIN
-#define PLAUSIBILITY_DISABLE_AFTER_MIN 10
-#endif
-
 #ifndef BELOW_MIN_HITS_THRESHOLD
 #define BELOW_MIN_HITS_THRESHOLD 3
 #endif
@@ -48,12 +33,11 @@ namespace
 
 RTC_DATA_ATTR int bootCount = 0;
 RTC_DATA_ATTR int lastPlausibleDistance = 0;
-RTC_DATA_ATTR uint32_t lastPlausibleBootCount = 0;
 RTC_DATA_ATTR uint8_t belowMinCycleStreak = 0;
 RTC_DATA_ATTR int lastValidDistance = 0;
 RTC_DATA_ATTR bool validDistanceKnown = false;
-
-unsigned long lastPlausibleAtMs = 0;
+RTC_DATA_ATTR int plausibilityPendingCm = 0;
+RTC_DATA_ATTR uint8_t plausibilityPendingStreak = 0;
 
 void logHeldValue(const char *reason)
 {
@@ -76,20 +60,6 @@ void logBelowMinHold(const char *reason, int belowMinHits)
     return;
   }
   logLine("%s (hits=%d, streak=%u), no previous value", reason, belowMinHits, belowMinCycleStreak);
-}
-
-uint32_t elapsedSinceLastPlausibleSec()
-{
-  if (lastPlausibleBootCount > 0 && bootCount > (int)lastPlausibleBootCount)
-  {
-    return (uint32_t)(bootCount - (int)lastPlausibleBootCount) * (uint32_t)settings.time_to_sleep;
-  }
-  if (lastPlausibleAtMs != 0)
-  {
-    return (millis() - lastPlausibleAtMs) / 1000UL;
-  }
-  const int seconds = settings.time_to_sleep > 0 ? settings.time_to_sleep : 1;
-  return (uint32_t)seconds;
 }
 } // namespace
 
@@ -237,18 +207,6 @@ bool measureDistance(int &distanceCm)
     filtered = round(std::accumulate(plausible.begin(), plausible.end(), 0.0) / plausible.size());
   }
 
-  const uint32_t elapsedSec = elapsedSinceLastPlausibleSec();
-  const uint32_t elapsedMin = elapsedSec / 60U;
-  const int dynamicMaxStep = PLAUSIBILITY_MAX_STEP_CM + (int)(elapsedMin * PLAUSIBILITY_RELAX_RATE_CM_PER_MIN);
-  const bool clampDisabledByTime = elapsedMin >= PLAUSIBILITY_DISABLE_AFTER_MIN;
-
-  if (!clampDisabledByTime && lastPlausibleDistance > 0 && abs(filtered - lastPlausibleDistance) > dynamicMaxStep)
-  {
-    logLine("Plausibility clamp: raw=%d cm prev=%d cm max_step=%d cm elapsed_min=%u",
-            filtered, lastPlausibleDistance, dynamicMaxStep, (unsigned int)elapsedMin);
-    filtered = lastPlausibleDistance;
-  }
-
   const bool enoughValidDistances = (int)distances.size() >= minValidForOverride;
   if (!enoughValidDistances && (belowMinCycleStreak >= BELOW_MIN_STREAK_THRESHOLD || belowMinHits >= dynamicBelowMinThreshold))
   {
@@ -257,18 +215,32 @@ bool measureDistance(int &distanceCm)
     return false;
   }
 
+  PlausibilityState plausibility{lastPlausibleDistance, plausibilityPendingCm, plausibilityPendingStreak};
+  const PlausibilityDecision decision = plausibilityDecide(plausibility, filtered, PLAUSIBILITY_MAX_STEP_CM,
+                                                          PLAUSIBILITY_OUTLIER_DELTA_CM, PLAUSIBILITY_CONFIRM_COUNT);
+  lastPlausibleDistance = plausibility.acceptedCm;
+  plausibilityPendingCm = plausibility.pendingCm;
+  plausibilityPendingStreak = plausibility.pendingStreak;
+
   diagClearError(ErrorSource::Sensor);
   belowMinCycleStreak = 0;
-  lastPlausibleDistance = filtered;
-  lastPlausibleBootCount = (uint32_t)bootCount;
-  lastPlausibleAtMs = millis();
-  lastValidDistance = filtered;
+  lastValidDistance = decision.distanceCm;
   validDistanceKnown = true;
-  distanceCm = filtered;
+  distanceCm = decision.distanceCm;
 
-  logLine("Average distance: %d cm (median=%d, kept=%d/%d)",
+  logLine("Measured distance: %d cm (median=%d, kept=%d/%d)",
           filtered, median, (int)plausible.size(), (int)distances.size());
-  const int volumeL = computeVolumeLitersFromDistance(filtered);
+  if (decision.held)
+  {
+    logLine("Plausibility hold: raw=%d cm prev=%d cm pending=%d cm streak=%u/%d",
+            filtered, decision.distanceCm, decision.pendingCm, (unsigned int)decision.pendingStreak,
+            PLAUSIBILITY_CONFIRM_COUNT);
+  }
+  else
+  {
+    logLine("Plausibility accept: %d cm", decision.distanceCm);
+  }
+  const int volumeL = computeVolumeLitersFromDistance(decision.distanceCm);
   logLine("Calculated volume: %d L (%.3f m3)", volumeL, (float)volumeL / 1000.0f);
   return true;
 }
