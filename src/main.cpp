@@ -34,6 +34,7 @@ unsigned long lastMeasureMs = 0;
 unsigned long lastPublishMs = 0;
 unsigned long measuringSinceMs = 0;
 bool measuringHold = false;
+bool referenceRequested = false;
 
 uint32_t configuredIntervalMs()
 {
@@ -221,6 +222,49 @@ bool devModeEnabled()
   return settings.dev_mode;
 }
 
+void requestReferenceMeasurement()
+{
+  referenceRequested = true;
+}
+
+bool referenceMeasurementPending()
+{
+  return referenceRequested;
+}
+
+bool runReferenceMeasurement()
+{
+  referenceRequested = false;
+  int measuredCm = 0;
+  statusLedSet(StatusLed::Measuring);
+  measuringHold = true;
+  measuringSinceMs = millis();
+  logLine("Reference measurement");
+  const bool ok = measureDistance(measuredCm, true);
+  // Stamp this after the blocking read. A timestamp from before the burst
+  // can sit behind the loop's captured millis() and wrap the interval check.
+  lastMeasureMs = millis();
+  measuringSinceMs = lastMeasureMs;
+  if (mqttConnected())
+  {
+    // One press, one attempt. Clearing on failure too stops a dead sensor
+    // from bypassing the check on every later wake.
+    mqttClearReferenceCommand();
+  }
+  if (!ok)
+  {
+    logLine("Reference measurement failed");
+    return false;
+  }
+  distancePrev = measuredCm;
+  if (mqttConnected())
+  {
+    publishLastValidState();
+    lastPublishMs = millis();
+  }
+  return true;
+}
+
 void setup()
 {
   statusLedBegin();
@@ -236,20 +280,32 @@ void setup()
 
   int measuredCm = 0;
   statusLedSet(StatusLed::Measuring);
-  const bool measuredOk = measureDistance(measuredCm);
+  bool measuredOk = measureDistance(measuredCm);
   const bool changed = measuredOk && measuredCm != distancePrev;
   const bool shouldPublish = hasValidDistance() && (changed || heartbeatDue() || !prevWifiState);
 
   // Always connect, not only when there is something to publish: retained MQTT
-  // commands (web monitor switch) are only delivered while connected, which is
-  // the only chance to reach a device that spends its time in deep sleep.
+  // commands (web monitor switch, reference measurement) are only delivered
+  // while connected, which is the only chance to reach a device that spends
+  // its time in deep sleep.
   const bool wifiUp = setupWifi();
   bool mqttOk = false;
+  bool publishedReference = false;
   if (wifiUp)
   {
     statusLedSet(StatusLed::MqttConnecting);
     mqttOk = mqttConnectWithRetries(MQTT_RETRY_LIMIT);
-    if (mqttOk && shouldPublish)
+    // The boot sample already ran, before this command could arrive.
+    if (referenceMeasurementPending())
+    {
+      if (runReferenceMeasurement())
+      {
+        measuredOk = true;
+        measuredCm = lastValidDistanceCm();
+        publishedReference = true;
+      }
+    }
+    if (mqttOk && shouldPublish && !publishedReference)
     {
       publishLastValidState();
     }
@@ -321,6 +377,13 @@ void loop()
   }
   wifiWasConnected = wifiNow;
 
+  // A command that arrived in the mqttLoop above has to run before sleep.
+  // The web button calls runReferenceMeasurement() itself and does not wait for this.
+  if (referenceMeasurementPending())
+  {
+    runReferenceMeasurement();
+  }
+
   if (!stayAwake())
   {
     // Only reachable in battery mode: nothing needs the device any more.
@@ -330,23 +393,31 @@ void loop()
 
   serviceNetwork(now);
 
-  if (now - lastMeasureMs >= measureIntervalMs())
+  // millis() here, not the captured `now`: a reference read stamps lastMeasureMs
+  // after `now`, and an unsigned subtract would wrap and measure again at once.
+  if (referenceMeasurementPending())
   {
-    lastMeasureMs = now;
+    runReferenceMeasurement();
+  }
+  else if (millis() - lastMeasureMs >= measureIntervalMs())
+  {
+    lastMeasureMs = millis();
     int measuredCm = 0;
     // Publish before the read blocks the loop, then keep the state visible.
     statusLedSet(StatusLed::Measuring);
     measuringHold = true;
-    measuringSinceMs = now;
+    measuringSinceMs = lastMeasureMs;
     if (measureDistance(measuredCm))
     {
       distancePrev = measuredCm;
     }
   }
 
-  if (now - lastPublishMs >= configuredIntervalMs())
+  // millis(), not the captured `now`: a reference publish stamps lastPublishMs
+  // after `now`, and an unsigned subtract would wrap and publish again at once.
+  if (millis() - lastPublishMs >= configuredIntervalMs())
   {
-    lastPublishMs = now;
+    lastPublishMs = millis();
     if (mqttConnected())
     {
       publishLastValidState();

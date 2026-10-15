@@ -170,6 +170,20 @@ void test_garbage_streak_does_not_accept_immediately()
   CHECK(decision.pendingCm == 136);
   CHECK(decision.pendingStreak == 1);
 }
+
+void test_reference_accepts_a_jump_and_clears_pending()
+{
+  PlausibilityState state{25, 80, 2};
+  plausibilityAcceptReference(state, 140);
+  CHECK(state.acceptedCm == 140);
+  CHECK(state.pendingCm == 0);
+  CHECK(state.pendingStreak == 0);
+
+  const PlausibilityDecision next = step(state, 150);
+  CHECK(!next.held);
+  CHECK(next.distanceCm == 150);
+  CHECK(state.acceptedCm == 150);
+}
 } // namespace
 
 int main()
@@ -191,6 +205,7 @@ int main()
   RUN(test_small_step_clears_a_pending_jump);
   RUN(test_many_identical_outliers_still_need_three);
   RUN(test_garbage_streak_does_not_accept_immediately);
+  RUN(test_reference_accepts_a_jump_and_clears_pending);
 
 #undef RUN
 

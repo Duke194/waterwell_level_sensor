@@ -34,6 +34,7 @@ struct MqttPaths
   char state[64];
   char status[64];
   char restart[80];
+  char reference[80];
   char monitorCommand[80];
   char monitorState[80];
   char ip[80];
@@ -46,6 +47,7 @@ struct MqttPaths
   char area[80];
   char discoveryVolume[96];
   char discoveryRestart[96];
+  char discoveryReference[96];
   char discoveryMonitor[96];
   char discoveryIp[96];
   char discoveryDiagStatus[104];
@@ -72,6 +74,7 @@ void buildPaths()
   joinRoot(path.state, sizeof(path.state), root, "state");
   joinRoot(path.status, sizeof(path.status), root, "status");
   joinRoot(path.restart, sizeof(path.restart), root, "control/restart");
+  joinRoot(path.reference, sizeof(path.reference), root, "control/reference");
   joinRoot(path.monitorCommand, sizeof(path.monitorCommand), root, "control/monitor");
   joinRoot(path.monitorState, sizeof(path.monitorState), root, "status/monitor");
   joinRoot(path.ip, sizeof(path.ip), root, "status/ip");
@@ -84,6 +87,7 @@ void buildPaths()
   joinRoot(path.area, sizeof(path.area), root, "metrics/area_m2");
   snprintf(path.discoveryVolume, sizeof(path.discoveryVolume), "homeassistant/sensor/%s/config", MQTT_NODE);
   snprintf(path.discoveryRestart, sizeof(path.discoveryRestart), "homeassistant/button/%s_restart/config", MQTT_NODE);
+  snprintf(path.discoveryReference, sizeof(path.discoveryReference), "homeassistant/button/%s_reference/config", MQTT_NODE);
   snprintf(path.discoveryMonitor, sizeof(path.discoveryMonitor), "homeassistant/switch/%s_monitor/config", MQTT_NODE);
   snprintf(path.discoveryIp, sizeof(path.discoveryIp), "homeassistant/sensor/%s_ip/config", MQTT_NODE);
   snprintf(path.discoveryDiagStatus, sizeof(path.discoveryDiagStatus), "homeassistant/sensor/%s_state/config", MQTT_NODE);
@@ -170,6 +174,16 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     delay(300);
     ESP.restart();
   }
+  else if (strcmp(topic, path.reference) == 0)
+  {
+    // Empty payload is the retained command being cleared after a run.
+    if (copyLen == 0)
+    {
+      return;
+    }
+    logLine("Reference measurement requested via MQTT");
+    requestReferenceMeasurement();
+  }
 }
 
 void publishDiscovery()
@@ -218,6 +232,19 @@ void publishDiscovery()
   doc["command_topic"] = path.restart;
   addDevice(doc.createNestedObject("device"));
   publishDoc(path.discoveryRestart);
+
+  doc.clear();
+  doc["name"] = MQTT_DEVICE_NAME " Referenzmessung";
+  doc["unique_id"] = String(path.clientId) + "_reference";
+  doc["command_topic"] = path.reference;
+  doc["payload_press"] = "PRESS";
+  doc["icon"] = "mdi:crosshairs";
+  // Retained so a sleeping device runs it on the next wake. The firmware
+  // publishes an empty payload after the attempt, otherwise every wake
+  // would skip the plausibility check.
+  doc["retain"] = true;
+  addDevice(doc.createNestedObject("device"));
+  publishDoc(path.discoveryReference);
 
   doc.clear();
   doc["name"] = MQTT_DEVICE_NAME " Web Monitor";
@@ -365,7 +392,9 @@ bool mqttConnectOnce()
   const bool subSettings = mqttClient.subscribe(settingsFilter);
   const bool subMonitor = mqttClient.subscribe(path.monitorCommand);
   const bool subRestart = mqttClient.subscribe(path.restart);
-  logLine("MQTT subscribe settings=%d monitor=%d restart=%d", subSettings ? 1 : 0, subMonitor ? 1 : 0, subRestart ? 1 : 0);
+  const bool subReference = mqttClient.subscribe(path.reference);
+  logLine("MQTT subscribe settings=%d monitor=%d restart=%d reference=%d", subSettings ? 1 : 0, subMonitor ? 1 : 0,
+          subRestart ? 1 : 0, subReference ? 1 : 0);
   if (!subMonitor)
   {
     // Without this subscription the switch can never turn the page back on.
@@ -418,6 +447,14 @@ bool mqttConnected()
 void mqttDisconnect()
 {
   mqttClient.disconnect();
+}
+
+void mqttClearReferenceCommand()
+{
+  if (mqttClient.connected())
+  {
+    mqttClient.publish(path.reference, "", true);
+  }
 }
 
 bool publishLastValidState()

@@ -118,7 +118,7 @@ int lastValidDistanceCm()
   return lastValidDistance;
 }
 
-bool measureDistance(int &distanceCm)
+bool measureDistance(int &distanceCm, bool bypassPlausibility)
 {
   std::vector<int> distances;
   int retries = 0;
@@ -215,32 +215,54 @@ bool measureDistance(int &distanceCm)
     return false;
   }
 
-  PlausibilityState plausibility{lastPlausibleDistance, plausibilityPendingCm, plausibilityPendingStreak};
-  const PlausibilityDecision decision = plausibilityDecide(plausibility, filtered, PLAUSIBILITY_MAX_STEP_CM,
-                                                          PLAUSIBILITY_OUTLIER_DELTA_CM, PLAUSIBILITY_CONFIRM_COUNT);
-  lastPlausibleDistance = plausibility.acceptedCm;
-  plausibilityPendingCm = plausibility.pendingCm;
-  plausibilityPendingStreak = plausibility.pendingStreak;
-
-  diagClearError(ErrorSource::Sensor);
-  belowMinCycleStreak = 0;
-  lastValidDistance = decision.distanceCm;
-  validDistanceKnown = true;
-  distanceCm = decision.distanceCm;
-
-  logLine("Measured distance: %d cm (median=%d, kept=%d/%d)",
-          filtered, median, (int)plausible.size(), (int)distances.size());
-  if (decision.held)
+  int acceptedCm = filtered;
+  bool held = false;
+  int pendingCm = 0;
+  uint8_t pendingStreak = 0;
+  if (bypassPlausibility)
   {
-    logLine("Plausibility hold: raw=%d cm prev=%d cm pending=%d cm streak=%u/%d",
-            filtered, decision.distanceCm, decision.pendingCm, (unsigned int)decision.pendingStreak,
-            PLAUSIBILITY_CONFIRM_COUNT);
+    PlausibilityState plausibility{lastPlausibleDistance, plausibilityPendingCm, plausibilityPendingStreak};
+    plausibilityAcceptReference(plausibility, filtered);
+    lastPlausibleDistance = plausibility.acceptedCm;
+    plausibilityPendingCm = plausibility.pendingCm;
+    plausibilityPendingStreak = plausibility.pendingStreak;
   }
   else
   {
-    logLine("Plausibility accept: %d cm", decision.distanceCm);
+    PlausibilityState plausibility{lastPlausibleDistance, plausibilityPendingCm, plausibilityPendingStreak};
+    const PlausibilityDecision decision = plausibilityDecide(plausibility, filtered, PLAUSIBILITY_MAX_STEP_CM,
+                                                            PLAUSIBILITY_OUTLIER_DELTA_CM, PLAUSIBILITY_CONFIRM_COUNT);
+    lastPlausibleDistance = plausibility.acceptedCm;
+    plausibilityPendingCm = plausibility.pendingCm;
+    plausibilityPendingStreak = plausibility.pendingStreak;
+    acceptedCm = decision.distanceCm;
+    held = decision.held;
+    pendingCm = decision.pendingCm;
+    pendingStreak = decision.pendingStreak;
   }
-  const int volumeL = computeVolumeLitersFromDistance(decision.distanceCm);
+
+  diagClearError(ErrorSource::Sensor);
+  belowMinCycleStreak = 0;
+  lastValidDistance = acceptedCm;
+  validDistanceKnown = true;
+  distanceCm = acceptedCm;
+
+  logLine("Measured distance: %d cm (median=%d, kept=%d/%d)",
+          filtered, median, (int)plausible.size(), (int)distances.size());
+  if (bypassPlausibility)
+  {
+    logLine("Reference accept: %d cm", acceptedCm);
+  }
+  else if (held)
+  {
+    logLine("Plausibility hold: raw=%d cm prev=%d cm pending=%d cm streak=%u/%d",
+            filtered, acceptedCm, pendingCm, (unsigned int)pendingStreak, PLAUSIBILITY_CONFIRM_COUNT);
+  }
+  else
+  {
+    logLine("Plausibility accept: %d cm", acceptedCm);
+  }
+  const int volumeL = computeVolumeLitersFromDistance(acceptedCm);
   logLine("Calculated volume: %d L (%.3f m3)", volumeL, (float)volumeL / 1000.0f);
   return true;
 }

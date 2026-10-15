@@ -93,6 +93,9 @@ void handleRoot()
       "<div class='k'>DEV</div><div class='v dev-row'><span id='devMode'>-</span>"
       "<span class='tip' tabindex='0' data-tip='Misst alle 5 s und schreibt das ins Live-Log. MQTT bleibt beim eingestellten Sleep-Intervall.'>?</span>"
       "<button type='button' class='inline-btn' id='devToggle' disabled>...</button></div>"
+      "<div class='k'>Referenzmessung</div><div class='v dev-row'><span id='referenceMsg'></span>"
+      "<span class='tip' tabindex='0' data-tip='Startet sofort eine Messung und übernimmt den Wert als neuen Pegel, auch wenn er stark vom letzten Stand abweicht.'>?</span>"
+      "<button type='button' class='inline-btn' id='referenceBtn'>Jetzt messen</button></div>"
       "</div>"
       "</div>"
       "<div class='card'><h2>Sensor Settings</h2><form class='form' id='settingsForm'>";
@@ -215,6 +218,12 @@ void handleRoot()
           "try{const r=await fetch('/ota/rollback',{method:'POST'});"
           "if(!r.ok){this.disabled=false;this.textContent='Rollback failed';}}"
           "catch(e){this.disabled=false;this.textContent='Rollback failed';}});}"
+          "document.getElementById('referenceBtn').addEventListener('click',async function(){"
+          "const btn=this;const msg=document.getElementById('referenceMsg');btn.disabled=true;btn.textContent='Misst...';msg.textContent='';"
+          "try{const r=await fetch('/reference',{method:'POST'});"
+          "msg.textContent=r.ok?'Übernommen':'Keine gültige Messung';msg.style.color=r.ok?'#4ade80':'#f87171';"
+          "if(r.ok){refreshStatus();refreshLogs();}}catch(e){msg.textContent='Fehlgeschlagen';msg.style.color='#f87171';}"
+          "btn.disabled=false;btn.textContent='Jetzt messen';});"
           "document.getElementById('settingsForm').addEventListener('submit',async function(e){e.preventDefault();"
           "const p=new URLSearchParams();p.set('area',document.getElementById('area').value);p.set('volume_well',document.getElementById('volumeWell').value);"
           "p.set('time_to_sleep',document.getElementById('sleepSec').value);p.set('heartbeat',document.getElementById('heartbeatSec').value);"
@@ -316,6 +325,17 @@ void handleSettingsPost()
   settings.battery_mode = webServer.hasArg("battery_mode");
   saveSettingsToNvs();
   publishLastValidState();
+  webServer.send(200, "text/plain", "OK");
+}
+
+void handleReferencePost()
+{
+  logLine("Reference measurement requested via web");
+  if (!runReferenceMeasurement())
+  {
+    webServer.send(503, "text/plain", "no valid measurement");
+    return;
+  }
   webServer.send(200, "text/plain", "OK");
 }
 
@@ -452,6 +472,7 @@ static void registerWebHandlers()
   webServer.on("/logs", HTTP_GET, handleLogs);
   webServer.on("/settings", HTTP_POST, handleSettingsPost);
   webServer.on("/dev", HTTP_POST, handleDevPost);
+  webServer.on("/reference", HTTP_POST, handleReferencePost);
   webServer.on("/ota/rollback", HTTP_POST, handleOtaRollback);
   webServer.on("/mqtt/config", HTTP_POST, handleMqttConfigPost);
   webServer.on(

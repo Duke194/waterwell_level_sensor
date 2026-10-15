@@ -89,3 +89,11 @@ inline PlausibilityDecision plausibilityDecide(PlausibilityState &state, int can
 
   return {state.acceptedCm, true, state.pendingCm, state.pendingStreak};
 }
+
+// Stores candidateCm as the accepted level and drops a pending confirmation.
+inline void plausibilityAcceptReference(PlausibilityState &state, int candidateCm)
+{
+  state.acceptedCm = candidateCm;
+  state.pendingCm = 0;
+  state.pendingStreak = 0;
+}
