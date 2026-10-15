@@ -395,33 +395,109 @@ bool otaMayReboot(bool image_accepted, bool update_end_ok)
   return image_accepted && update_end_ok;
 }
 
-OtaBootDecision otaDecideBoot(bool pending, uint32_t uptime_ms, uint32_t web_started_ms, uint32_t last_served_ms, uint32_t stable_ms, uint32_t timeout_ms)
+namespace
 {
-  if (!pending)
+const char kFirmwareAnchor[] = "Firmware %s, boot number";
+const char kFirmwareMark[] = "waterwell-fw=";
+constexpr size_t kRollbackVersionMax = 15;
+
+bool isRollbackVersion(const char *text, size_t len)
+{
+  if (len < 5 || len > kRollbackVersionMax || text[0] != 'v')
   {
-    return OtaBootDecision::NotPending;
+    return false;
   }
-  // A listener flag is not enough: the previous firmware confirmed itself
-  // that way and then nobody could open the page. Only a completed request
-  // after the stable window proves the OTA path still works.
-  if (web_started_ms > 0 && last_served_ms >= web_started_ms + stable_ms)
+  int part = 0;
+  bool sawDigit = false;
+  for (size_t i = 1; i < len; ++i)
   {
-    return OtaBootDecision::MarkValid;
+    const char c = text[i];
+    if (c >= '0' && c <= '9')
+    {
+      sawDigit = true;
+      continue;
+    }
+    if (c == '.' && sawDigit && part < 2)
+    {
+      ++part;
+      sawDigit = false;
+      continue;
+    }
+    return false;
   }
-  const uint32_t elapsed = web_started_ms > 0 ? (uptime_ms - web_started_ms) : uptime_ms;
-  if (elapsed >= timeout_ms)
+  return part == 2 && sawDigit;
+}
+} // namespace
+
+bool copyRollbackVersionAt(const uint8_t *data, size_t start, size_t end, char *out, size_t out_len)
+{
+  const size_t versionLen = end - start;
+  if (!isRollbackVersion(reinterpret_cast<const char *>(data + start), versionLen) || versionLen + 1 > out_len)
   {
-    return OtaBootDecision::RollBack;
+    return false;
   }
-  return OtaBootDecision::StayPending;
+  memcpy(out, data + start, versionLen);
+  out[versionLen] = '\0';
+  return true;
 }
 
-bool otaShouldForceWeb(bool pending, bool monitor_enabled, bool failure_forced)
+bool otaCopyRollbackVersion(const uint8_t *data, size_t len, char *out, size_t out_len)
 {
-  return pending || monitor_enabled || failure_forced;
+  if (data == nullptr || out == nullptr || out_len < 6)
+  {
+    return false;
+  }
+  const size_t markLen = sizeof(kFirmwareMark) - 1;
+  if (len >= markLen + 6)
+  {
+    for (size_t i = 0; i + markLen + 5 <= len; ++i)
+    {
+      if (memcmp(data + i, kFirmwareMark, markLen) != 0)
+      {
+        continue;
+      }
+      const size_t start = i + markLen;
+      size_t end = start;
+      while (end < len && data[end] != 0 && (end - start) <= kRollbackVersionMax)
+      {
+        ++end;
+      }
+      if (end < len && data[end] == 0 && copyRollbackVersionAt(data, start, end, out, out_len))
+      {
+        return true;
+      }
+    }
+  }
+  const size_t anchorLen = sizeof(kFirmwareAnchor) - 1;
+  if (len < anchorLen + 2)
+  {
+    return false;
+  }
+  for (size_t i = 1; i + anchorLen <= len; ++i)
+  {
+    if (memcmp(data + i, kFirmwareAnchor, anchorLen) != 0 || data[i - 1] != 0)
+    {
+      continue;
+    }
+    const size_t end = i - 1;
+    size_t start = end;
+    while (start > 0 && data[start - 1] != 0 && (end - (start - 1)) <= kRollbackVersionMax)
+    {
+      --start;
+    }
+    if (start > 0 && data[start - 1] != 0)
+    {
+      continue;
+    }
+    if (copyRollbackVersionAt(data, start, end, out, out_len))
+    {
+      return true;
+    }
+  }
+  return false;
 }
 
-bool otaMayAcceptUpload(bool awaiting_confirm)
+bool otaShouldForceWeb(bool monitor_enabled, bool failure_forced)
 {
-  return !awaiting_confirm;
+  return monitor_enabled || failure_forced;
 }

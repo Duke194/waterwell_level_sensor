@@ -8,6 +8,8 @@ void mqttDisconnect();
 
 // Publishes the last in-range sample. No-op until one exists.
 bool publishLastValidState();
+// Drops a retained reference-measurement command so the next wake does not repeat it.
+void mqttClearReferenceCommand();
 void mqttPublishMonitorState();
 
 // Publishes the status text and the current error text, each only when it

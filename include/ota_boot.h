@@ -1,11 +1,13 @@
 #pragma once
 
-#include "ota_image.h"
-
 #include <stddef.h>
-#include <stdint.h>
 
 size_t otaNextSlotSize();
+// Keeps a freshly booted image. The bootloader marks it pending and would
+// drop it on the next reset otherwise.
 void otaBootInit();
-bool otaBootAwaitingConfirm();
-OtaBootDecision otaBootPoll(uint32_t uptime_ms, uint32_t web_started_ms, uint32_t last_served_ms);
+// Version string from the inactive OTA slot, such as "v0.1.0", or null when
+// that slot has no bootable image with a readable version. Cached.
+const char *otaOtherVersion();
+// Points the bootloader at the inactive slot. The caller reboots.
+bool otaRollbackToOther();

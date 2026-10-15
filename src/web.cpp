@@ -5,8 +5,10 @@
 #include "log.h"
 #include "mqtt.h"
 #include "ota_boot.h"
+#include "ota_image.h"
 #include "sensor.h"
 #include "settings.h"
+#include "status_led.h"
 
 #include <ArduinoJson.h>
 #include <Update.h>
@@ -20,18 +22,6 @@ namespace
 WebServer webServer(80);
 bool webMonitorRunning = false;
 bool monitorForcedByFailure = false;
-uint32_t webStartedMs = 0;
-uint32_t lastRequestMs = 0;
-
-void noteWebRequest()
-{
-  uint32_t now = millis();
-  if (now == 0)
-  {
-    now = 1;
-  }
-  lastRequestMs = now;
-}
 
 enum class OtaHttpResult
 {
@@ -39,7 +29,6 @@ enum class OtaHttpResult
   Unauthorized,
   BadImage,
   FlashFailed,
-  Unconfirmed,
   Reboot
 };
 
@@ -57,7 +46,6 @@ void appendLabel(String &html, const char *name, const char *tip)
 
 void handleRoot()
 {
-  noteWebRequest();
   String html;
   html.reserve(16000);
   html +=
@@ -84,8 +72,17 @@ void handleRoot()
       ".inline-btn:hover{background:#1d4ed8;}.inline-btn:disabled{background:#334155;cursor:default;}"
       "pre{background:#0a0f1c;border-radius:8px;padding:12px;overflow:auto;max-height:320px;white-space:pre-wrap;word-break:break-word;}</style>"
       "</head><body>"
-      "<div class='card'><h1>" MQTT_DEVICE_NAME " Sensor Monitor</h1><div class='status' id='status'>Loading status...</div>"
-      "<div class='status' id='otaPending'></div>"
+      "<div class='card'><h1>" MQTT_DEVICE_NAME " Sensor Monitor</h1>";
+  html += "<div class='status dev-row'>Firmware " FW_VERSION;
+  const char *previous = otaOtherVersion();
+  if (previous != nullptr)
+  {
+    html += "<button type='button' class='inline-btn' id='rollbackBtn'>Rollback ";
+    html += previous;
+    html += "</button>";
+  }
+  html += "</div>"
+      "<div class='status' id='status'>Loading status...</div>"
       "<div class='kv'>"
       "<div class='k'>Boot count</div><div class='v' id='bootCount'>-</div>"
       "<div class='k'>Distance (raw)</div><div class='v' id='distanceRaw'>-</div>"
@@ -96,6 +93,9 @@ void handleRoot()
       "<div class='k'>DEV</div><div class='v dev-row'><span id='devMode'>-</span>"
       "<span class='tip' tabindex='0' data-tip='Misst alle 5 s und schreibt das ins Live-Log. MQTT bleibt beim eingestellten Sleep-Intervall.'>?</span>"
       "<button type='button' class='inline-btn' id='devToggle' disabled>...</button></div>"
+      "<div class='k'>Referenzmessung</div><div class='v dev-row'><span id='referenceMsg'></span>"
+      "<span class='tip' tabindex='0' data-tip='Startet sofort eine Messung und übernimmt den Wert als neuen Pegel, auch wenn er stark vom letzten Stand abweicht.'>?</span>"
+      "<button type='button' class='inline-btn' id='referenceBtn'>Jetzt messen</button></div>"
       "</div>"
       "</div>"
       "<div class='card'><h2>Sensor Settings</h2><form class='form' id='settingsForm'>";
@@ -180,7 +180,6 @@ void handleRoot()
           "async function refreshStatus(){"
           "try{const res=await fetch('/status/json',{cache:'no-store'});if(!res.ok)throw new Error('status http '+res.status);"
           "const data=await res.json();document.getElementById('status').textContent='Last update: '+new Date().toLocaleTimeString();"
-          "document.getElementById('otaPending').textContent=data.ota_pending?'New firmware is not confirmed. Leave this page open for 30 seconds. If it never answers, the previous firmware returns.':'';"
           "document.getElementById('bootCount').textContent=(data.bootCount!==undefined&&data.bootCount!==null)?data.bootCount:'-';"
           "document.getElementById('distanceRaw').textContent=((data.raw_distance_cm!==undefined&&data.raw_distance_cm!==null)?data.raw_distance_cm:'-')+' cm';"
           "document.getElementById('distanceEffective').textContent=((data.effective_distance_cm!==undefined&&data.effective_distance_cm!==null)?data.effective_distance_cm:'-')+' cm';"
@@ -212,6 +211,19 @@ void handleRoot()
           "try{const r=await fetch('/dev',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p.toString()});"
           "if(r.ok){updateDevUi(!devOn);setTimeout(refreshStatus,500);}else{btn.disabled=false;}}"
           "catch(e){btn.disabled=false;}});"
+          "const rollbackBtn=document.getElementById('rollbackBtn');"
+          "if(rollbackBtn){rollbackBtn.addEventListener('click',async function(){"
+          "if(!confirm(this.textContent+'?'))return;"
+          "this.disabled=true;"
+          "try{const r=await fetch('/ota/rollback',{method:'POST'});"
+          "if(!r.ok){this.disabled=false;this.textContent='Rollback failed';}}"
+          "catch(e){this.disabled=false;this.textContent='Rollback failed';}});}"
+          "document.getElementById('referenceBtn').addEventListener('click',async function(){"
+          "const btn=this;const msg=document.getElementById('referenceMsg');btn.disabled=true;btn.textContent='Misst...';msg.textContent='';"
+          "try{const r=await fetch('/reference',{method:'POST'});"
+          "msg.textContent=r.ok?'Übernommen':'Keine gültige Messung';msg.style.color=r.ok?'#4ade80':'#f87171';"
+          "if(r.ok){refreshStatus();refreshLogs();}}catch(e){msg.textContent='Fehlgeschlagen';msg.style.color='#f87171';}"
+          "btn.disabled=false;btn.textContent='Jetzt messen';});"
           "document.getElementById('settingsForm').addEventListener('submit',async function(e){e.preventDefault();"
           "const p=new URLSearchParams();p.set('area',document.getElementById('area').value);p.set('volume_well',document.getElementById('volumeWell').value);"
           "p.set('time_to_sleep',document.getElementById('sleepSec').value);p.set('heartbeat',document.getElementById('heartbeatSec').value);"
@@ -235,12 +247,10 @@ void handleRoot()
 
 void handleStatusJson()
 {
-  noteWebRequest();
   StaticJsonDocument<768> doc;
   doc["bootCount"] = currentBootCount();
   doc["ip"] = WiFi.localIP().toString();
   doc["monitor"] = webMonitorRunning;
-  doc["ota_pending"] = otaBootAwaitingConfirm();
   doc["dev_mode"] = devModeEnabled();
   if (hasValidDistance())
   {
@@ -280,13 +290,11 @@ void handleStatusJson()
 
 void handleLogs()
 {
-  noteWebRequest();
   webServer.send(200, "text/plain", getLogs());
 }
 
 void handleSettingsPost()
 {
-  noteWebRequest();
   if (webServer.hasArg("area"))
     settings.area = webServer.arg("area").toFloat();
   if (webServer.hasArg("volume_well"))
@@ -320,9 +328,19 @@ void handleSettingsPost()
   webServer.send(200, "text/plain", "OK");
 }
 
+void handleReferencePost()
+{
+  logLine("Reference measurement requested via web");
+  if (!runReferenceMeasurement())
+  {
+    webServer.send(503, "text/plain", "no valid measurement");
+    return;
+  }
+  webServer.send(200, "text/plain", "OK");
+}
+
 void handleDevPost()
 {
-  noteWebRequest();
   bool enable = false;
   if (webServer.hasArg("enabled"))
   {
@@ -335,7 +353,6 @@ void handleDevPost()
 
 void handleMqttConfigPost()
 {
-  noteWebRequest();
   if (!webServer.hasArg("host") || !webServer.hasArg("port") || !webServer.hasArg("user"))
   {
     webServer.send(400, "text/plain", "host, port, user required");
@@ -363,21 +380,11 @@ void rejectOta(OtaHttpResult result)
 
 void handleOtaUpload()
 {
-  noteWebRequest();
   HTTPUpload &upload = webServer.upload();
   if (upload.status == UPLOAD_FILE_START)
   {
     otaHttpResult = OtaHttpResult::None;
     diagClearError(ErrorSource::Ota);
-    // The other OTA slot is the only copy that can be rolled back to.
-    // Writing it while this image is still pending would destroy that copy.
-    if (!otaMayAcceptUpload(otaBootAwaitingConfirm()))
-    {
-      otaHttpResult = OtaHttpResult::Unconfirmed;
-      diagSetError(ErrorSource::Ota, "OTA: Firmware unbestaetigt");
-      logLine("OTA rejected: running firmware is not confirmed yet");
-      return;
-    }
     const bool passwordOk = webServer.hasArg("pw") && webServer.arg("pw") == OTA_SHARED_SECRET;
     if (!otaGateStart(&otaGate, passwordOk, otaNextSlotSize()))
     {
@@ -444,6 +451,20 @@ void handleOtaUpload()
 }
 } // namespace
 
+void handleOtaRollback()
+{
+  const char *previous = otaOtherVersion();
+  if (previous == nullptr || !otaRollbackToOther())
+  {
+    webServer.send(409, "text/plain", "no previous firmware");
+    return;
+  }
+  logLine("Rolling back to %s", previous);
+  webServer.send(200, "text/plain", "OK rebooting");
+  delay(300);
+  ESP.restart();
+}
+
 static void registerWebHandlers()
 {
   webServer.on("/", HTTP_GET, handleRoot);
@@ -451,6 +472,8 @@ static void registerWebHandlers()
   webServer.on("/logs", HTTP_GET, handleLogs);
   webServer.on("/settings", HTTP_POST, handleSettingsPost);
   webServer.on("/dev", HTTP_POST, handleDevPost);
+  webServer.on("/reference", HTTP_POST, handleReferencePost);
+  webServer.on("/ota/rollback", HTTP_POST, handleOtaRollback);
   webServer.on("/mqtt/config", HTTP_POST, handleMqttConfigPost);
   webServer.on(
       "/ota/upload", HTTP_POST,
@@ -459,7 +482,7 @@ static void registerWebHandlers()
         if (otaHttpResult == OtaHttpResult::Reboot)
         {
           webServer.send(200, "text/plain", "OK rebooting");
-          delay(1000);
+          statusLedBlinkFor(StatusLed::Online, 5000);
           ESP.restart();
           return;
         }
@@ -471,11 +494,6 @@ static void registerWebHandlers()
         if (otaHttpResult == OtaHttpResult::FlashFailed)
         {
           webServer.send(500, "text/plain", "OTA failed");
-          return;
-        }
-        if (otaHttpResult == OtaHttpResult::Unconfirmed)
-        {
-          webServer.send(409, "text/plain", "firmware not confirmed yet");
           return;
         }
         const char *reason = otaHttpResult == OtaHttpResult::BadImage ? otaGateReason(&otaGate) : "no firmware";
@@ -496,14 +514,6 @@ void startWebMonitor()
   // That keeps the MQTT switch reliable even if the flag says "running" but
   // the listener died after a Wi-Fi reconnect.
   webServer.begin();
-  if (webStartedMs == 0)
-  {
-    webStartedMs = millis();
-    if (webStartedMs == 0)
-    {
-      webStartedMs = 1;
-    }
-  }
   logLine("OTA marker %s", otaImageMarker());
   webMonitorRunning = true;
   mqttPublishMonitorState();
@@ -528,16 +538,6 @@ void webHandleClient()
 bool webMonitorIsRunning()
 {
   return webMonitorRunning;
-}
-
-uint32_t webMonitorStartedMs()
-{
-  return webStartedMs;
-}
-
-uint32_t webLastRequestMs()
-{
-  return lastRequestMs;
 }
 
 bool webMonitorForcedByFailure()

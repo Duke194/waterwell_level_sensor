@@ -36,8 +36,6 @@ Rgb colorFor(StatusLed state)
     return {0, 255, 255};
   case StatusLed::MqttFailed:
     return {255, 80, 0};
-  case StatusLed::OtaPending:
-    return {255, 200, 0};
   case StatusLed::Measuring:
     return {255, 255, 255};
   case StatusLed::Dev:
@@ -76,6 +74,18 @@ void begin()
 }
 
 #endif
+
+// Physical lamp only. The non-RGB board has no color, so any requested
+// state lights GPIO2. Callers that blink must not go through statusLedSet.
+void writeBlink(StatusLed state, bool on)
+{
+#ifdef STATUS_LED_RGB
+  write(on ? state : StatusLed::Off);
+#else
+  (void)state;
+  digitalWrite(LED_PIN, on ? HIGH : LOW);
+#endif
+}
 } // namespace
 
 void statusLedBegin()
@@ -97,8 +107,6 @@ const char *statusLedName(StatusLed state)
     return "MQTT verbindet";
   case StatusLed::MqttFailed:
     return "MQTT Fehler";
-  case StatusLed::OtaPending:
-    return "Firmware unbestaetigt";
   case StatusLed::Measuring:
     return "Messung";
   case StatusLed::Dev:
@@ -128,4 +136,23 @@ void statusLedPulse()
 {
   lampLit = !lampLit;
   write(lampLit ? current : StatusLed::Off);
+}
+
+void statusLedBlinkFor(StatusLed state, uint32_t durationMs)
+{
+  constexpr uint32_t halfPeriodMs = 250;
+  const uint32_t started = millis();
+  bool on = false;
+  while ((uint32_t)(millis() - started) < durationMs)
+  {
+    on = !on;
+    writeBlink(state, on);
+    const uint32_t elapsed = (uint32_t)(millis() - started);
+    if (elapsed >= durationMs)
+    {
+      break;
+    }
+    const uint32_t remain = durationMs - elapsed;
+    delay(remain < halfPeriodMs ? remain : halfPeriodMs);
+  }
 }

@@ -35,3 +35,10 @@ bool updateFloatSetting(const char *payload, float &setting);
 // Stores settings.dev_mode in NVS and restarts the measure timer. Implemented in main.cpp.
 void setDevMode(bool enabled);
 bool devModeEnabled();
+
+// One burst, accepted even when it jumps far from the last level.
+// Publishes when MQTT is connected. Returns false when the burst is invalid.
+bool runReferenceMeasurement();
+// MQTT sets this. setup() and loop() run it before the next sleep.
+void requestReferenceMeasurement();
+bool referenceMeasurementPending();
